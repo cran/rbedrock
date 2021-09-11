@@ -57,13 +57,13 @@ static void bedrock_leveldb_readoptions_finalize(SEXP r_readoptions);
 static void bedrock_leveldb_writeoptions_finalize(SEXP r_writeoptions);
 static void bedrock_leveldb_cache_finalize(SEXP r_cache);
 static void bedrock_leveldb_filterpolicy_finalize(SEXP r_filterpolicy);
+static void bedrock_leveldb_compressor_finalize(SEXP r_compressor);
 
 // Other internals
 void bedrock_leveldb_handle_error(char *err);
 leveldb_options_t *bedrock_leveldb_collect_options(
     SEXP r_create_if_missing, SEXP r_error_if_exists, SEXP r_paranoid_checks,
-    SEXP r_write_buffer_size, SEXP r_max_open_files, SEXP r_block_size,
-    SEXP r_compression_level);
+    SEXP r_write_buffer_size, SEXP r_max_open_files, SEXP r_block_size);
 
 bool iter_key_starts_with(leveldb_iterator_t *it, const char *starts_with,
                           size_t starts_with_len);
@@ -81,6 +81,8 @@ enum bedrock_leveldb_tag_index {
     TAG_CACHE,
     TAG_FILTERPOLICY,
     TAG_ITERATORS,
+    TAG_COMPRESSOR0,
+    TAG_COMPRESSOR1,
     TAG_LENGTH  // don't store anything here!
 };
 
@@ -103,8 +105,13 @@ SEXP bedrock_leveldb_open(SEXP r_path, SEXP r_create_if_missing,
     // R error (perhaps thrown by the coersion functions).
     SEXP r_cache_ptr = R_NilValue;
     SEXP r_filterpolicy_ptr = R_NilValue;
+    SEXP r_compressor_0 = R_NilValue;
+    SEXP r_compressor_1 = R_NilValue;
     leveldb_cache_t *cache = NULL;
     leveldb_filterpolicy_t *filterpolicy = NULL;
+    leveldb_compressor_t *compressor_0 = NULL;
+    leveldb_compressor_t *compressor_1 = NULL;
+
     bool has_cache = !Rf_isNull(r_cache_capacity);
     bool has_filterpolicy = !Rf_isNull(r_bloom_filter_bits_per_key);
     if(has_cache) {
@@ -123,14 +130,27 @@ SEXP bedrock_leveldb_open(SEXP r_path, SEXP r_create_if_missing,
     const char *path = scalar_character(r_path);
     leveldb_options_t *options = bedrock_leveldb_collect_options(
         r_create_if_missing, r_error_if_exists, r_paranoid_checks,
-        r_write_buffer_size, r_max_open_files, r_block_size,
-        r_compression_level);
+        r_write_buffer_size, r_max_open_files, r_block_size);
     if(has_cache) {
         leveldb_options_set_cache(options, cache);
     }
     if(has_filterpolicy) {
         leveldb_options_set_filter_policy(options, filterpolicy);
     }
+
+    int compression_level = -1;
+    if(!Rf_isNull(r_compression_level)) {
+        compression_level = scalar_int(r_compression_level);
+    }
+    compressor_0 = leveldb_compressor_create(leveldb_zlib_raw_compression, compression_level);
+    r_compressor_0 = PROTECT(R_MakeExternalPtr(compressor_0, R_NilValue, R_NilValue));
+    R_RegisterCFinalizer(r_compressor_0, bedrock_leveldb_compressor_finalize);
+    compressor_1 = leveldb_compressor_create(leveldb_zlib_compression, compression_level);
+    r_compressor_1 = PROTECT(R_MakeExternalPtr(compressor_1, R_NilValue, R_NilValue));
+    R_RegisterCFinalizer(r_compressor_1, bedrock_leveldb_compressor_finalize);
+
+    leveldb_options_set_compressor(options, 0, compressor_0);
+    leveldb_options_set_compressor(options, 1, compressor_1);
 
     char *err = NULL;
     leveldb_t *db = leveldb_open(options, path, &err);
@@ -142,10 +162,12 @@ SEXP bedrock_leveldb_open(SEXP r_path, SEXP r_create_if_missing,
     SET_VECTOR_ELT(tag, TAG_CACHE, r_cache_ptr);
     SET_VECTOR_ELT(tag, TAG_FILTERPOLICY, r_filterpolicy_ptr);
     SET_VECTOR_ELT(tag, TAG_ITERATORS, R_NilValue);  // will be a pairlist
+    SET_VECTOR_ELT(tag, TAG_COMPRESSOR0, r_compressor_0);
+    SET_VECTOR_ELT(tag, TAG_COMPRESSOR1, r_compressor_1);
 
     SEXP r_db = PROTECT(R_MakeExternalPtr(db, tag, R_NilValue));
     R_RegisterCFinalizer(r_db, bedrock_leveldb_finalize);
-    UNPROTECT(2 + has_cache + has_filterpolicy);
+    UNPROTECT(4 + has_cache + has_filterpolicy);
     return r_db;
 }
 
@@ -669,9 +691,8 @@ SEXP bedrock_leveldb_keys(SEXP r_db, SEXP r_starts_with,
     const char *starts_with = NULL;
     const size_t starts_with_len = get_starts_with(r_starts_with, &starts_with);
 
-    SEXP ret = R_NilValue;
-    SEXP last = R_NilValue;
-    SEXP value;
+    SEXP r_ret = PROTECT(create_stretchy_list());
+    SEXP r_value;
 
     leveldb_iterator_t *it = leveldb_create_iterator(db, readoptions);
     if(starts_with_len == 0) {
@@ -679,27 +700,21 @@ SEXP bedrock_leveldb_keys(SEXP r_db, SEXP r_starts_with,
     } else {
         leveldb_iter_seek(it, starts_with, starts_with_len);
     }
+
     for(; leveldb_iter_valid(it); leveldb_iter_next(it)) {
         if(!iter_key_starts_with(it, starts_with, starts_with_len)) {
             break;
         }
         size_t key_len;
         const char *key_data = leveldb_iter_key(it, &key_len);
-        value = raw_string_to_sexp(key_data, key_len);
-        if(Rf_isNull(ret)) {
-            PROTECT(ret = list1(value));
-            last = ret;
-        } else {
-            last = SETCDR(last, list1(value));
-        }
+        r_value = PROTECT(raw_string_to_sexp(key_data, key_len));
+        grow_stretchy_list(r_ret, r_value);
+        UNPROTECT(1);
     }
     leveldb_iter_destroy(it);
 
-    if(!Rf_isNull(ret)) {
-        UNPROTECT(1);
-    }
-
-    return PairToVectorList(ret);
+    UNPROTECT(1);
+    return Rf_PairToVectorList(CDR(r_ret));
 }
 
 SEXP bedrock_leveldb_keys_len(SEXP r_db, SEXP r_starts_with,
@@ -827,6 +842,18 @@ void bedrock_leveldb_filterpolicy_finalize(SEXP r_filterpolicy) {
         }
     }
 }
+
+void bedrock_leveldb_compressor_finalize(SEXP r_compressor) {
+    if(TYPEOF(r_compressor) == EXTPTRSXP) {
+        leveldb_compressor_t *compressor =
+            (leveldb_compressor_t *)R_ExternalPtrAddr(r_compressor);
+        if(compressor) {
+            leveldb_compressor_destroy(compressor);
+            R_ClearExternalPtr(r_compressor);
+        }
+    }
+}
+
 
 leveldb_t *bedrock_leveldb_get_db(SEXP r_db, bool closed_error) {
     void *db = NULL;
@@ -969,8 +996,7 @@ void bedrock_leveldb_get_exists(leveldb_t *db, size_t num_key,
 
 leveldb_options_t *bedrock_leveldb_collect_options(
     SEXP r_create_if_missing, SEXP r_error_if_exists, SEXP r_paranoid_checks,
-    SEXP r_write_buffer_size, SEXP r_max_open_files, SEXP r_block_size,
-    SEXP r_compression_level) {
+    SEXP r_write_buffer_size, SEXP r_max_open_files, SEXP r_block_size) {
     leveldb_options_t *options = leveldb_options_create();
     // TODO: put a finaliser on options so that we can error safely in
     // the scalar_logical commands on early exit.  Otherwise there is
@@ -1000,14 +1026,6 @@ leveldb_options_t *bedrock_leveldb_collect_options(
     if(!Rf_isNull(r_block_size)) {
         leveldb_options_set_block_size(options, scalar_size(r_block_size));
     }
-
-    int compression_level = -1;
-    if(!Rf_isNull(r_compression_level)) {
-        compression_level = scalar_int(r_compression_level);
-    }
-    leveldb_options_set_compression(options, leveldb_zlib_raw_compression,
-        compression_level);
-
     return options;
 }
 

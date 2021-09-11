@@ -1,6 +1,6 @@
 Package: rbedrock
 Title: Analysis and Manipulation of Data from Minecraft Bedrock Edition
-Version: 0.1.0
+Version: 0.1.1
 Authors@R: c(
     person("Reed", "Cartwright",
            role = c("aut", "cre"),
@@ -17,19 +17,20 @@ License: MIT + file LICENSE
 Encoding: UTF-8
 Language: en-US
 RoxygenNote: 7.1.1
-SystemRequirements: C++11, cmake, zlib, GNU make
+SystemRequirements: C++11, cmake, zlib, GNU make, Solaris: g++ is a
+        requirement
 NeedsCompilation: yes
 Depends: R (>= 3.6.0)
-Imports: tibble, R6, stringr, bit64, bitops, rappdirs, rlang, dplyr,
-        purrr, magrittr, readr, utils, digest, vctrs, tidyr, fs
+Imports: tibble, R6, stringr, bit64, rappdirs, rlang, dplyr, purrr,
+        magrittr, readr, utils, digest, vctrs, tidyr, fs
 Suggests: zip, testthat, jsonlite,
 URL: https://github.com/reedacartwright/rbedrock
 BugReports: https://github.com/reedacartwright/rbedrock/issues
-Packaged: 2021-07-13 21:23:51 UTC; reed
+Packaged: 2021-09-09 07:21:12 UTC; reed
 Author: Reed Cartwright [aut, cre] (<https://orcid.org/0000-0002-0837-9380>),
   Rich FitzJohn [ctb],
   Christian Stigen Larsen [ctb],
   The LevelDB Authors [cph]
 Maintainer: Reed Cartwright <racartwright@gmail.com>
 Repository: CRAN
-Date/Publication: 2021-07-14 09:20:02 UTC
+Date/Publication: 2021-09-11 23:40:02 UTC
