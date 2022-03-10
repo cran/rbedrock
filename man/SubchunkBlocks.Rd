@@ -4,6 +4,7 @@
 \alias{SubchunkBlocks}
 \alias{get_subchunk_blocks_data}
 \alias{get_subchunk_blocks_value}
+\alias{get_subchunk_blocks_from_chunk}
 \alias{put_subchunk_blocks_data}
 \alias{put_subchunk_blocks_values}
 \alias{put_subchunk_blocks_value}
@@ -33,15 +34,29 @@ get_subchunk_blocks_value(
   extra_block = FALSE
 )
 
-put_subchunk_blocks_data(db, data)
+get_subchunk_blocks_from_chunk(
+  db,
+  x,
+  z,
+  dimension,
+  names_only = FALSE,
+  extra_block = FALSE
+)
 
-put_subchunk_blocks_values(db, x, z, dimension, subchunk, values)
+put_subchunk_blocks_data(db, data, version = 9L)
 
-put_subchunk_blocks_value(db, x, z, dimension, subchunk, value)
+put_subchunk_blocks_values(db, x, z, dimension, subchunk, values, version = 9L)
 
-read_subchunk_blocks_value(rawdata, names_only = FALSE, extra_block = FALSE)
+put_subchunk_blocks_value(db, x, z, dimension, subchunk, value, version = 9L)
 
-write_subchunk_blocks_value(object)
+read_subchunk_blocks_value(
+  rawdata,
+  missing_offset = NA,
+  names_only = FALSE,
+  extra_block = FALSE
+)
+
+write_subchunk_blocks_value(object, version = 9L, missing_offset = NA_integer_)
 
 subchunk_origins(keys)
 
@@ -64,11 +79,15 @@ blocks. If the extra block is air, it will not be appended.}
 
 \item{data}{A named list of 16x16x16 character() arrays}
 
+\item{version}{Which format of subchunk data to use}
+
 \item{values}{A list of 16x16x16 character() arrays}
 
 \item{value}{A 16x16x16 character array}
 
 \item{rawdata}{a raw vector holding binary SubchunkBlock data}
+
+\item{missing_offset}{subchunk offset to use if one is not found in \code{rawdata}}
 
 \item{object}{A 16x16x16 character array.}
 
@@ -86,6 +105,9 @@ returned by \code{read_subchunk_blocks_value()}.
 \code{get_subchunk_blocks_value()} and \code{read_subchunk_blocks_value()}
 return a 16x16x16 character array. The axes represent the \code{x}, \code{y}, and \code{z}
 dimensions in that order.
+
+\code{get_subchunk_blocks_from_chunk()} returns a list of the of the values
+returned by \code{read_subchunk_blocks_value()}.
 
 \code{read_subchunk_blocks_value()} returns a 16x16x16 character array.
 The axes represent the \code{x}, \code{y}, and \code{z} dimensions in that order.
@@ -110,6 +132,9 @@ It will silently drop and keys not representing SubchunkBlocks data.
 
 \code{get_subchunk_blocks_value()} loads SubchunkBlocks data from a \code{bedrockdb}.
 It only supports loading a single value.
+
+\code{get_subchunk_blocks_from_chunk()} loads SubchunkBlocks data from a \code{bedrockdb}.
+It supports efficiently loading subchunk block data from a single chunk.
 
 \code{put_subchunk_blocks_data()}, \code{put_subchunk_blocks_values()}, and
 \code{put_subchunk_blocks_value()} store SubchunkBlocks data into a \code{bedrockdb}.

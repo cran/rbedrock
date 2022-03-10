@@ -31,7 +31,7 @@ rawkeys_to_chrkeys <- function(keys) {
 #' @description
 #' Chunk keys are keys to chunk data. A chunk key has a format which indicates
 #' the chunk it holds data for and the type of data it holds. This format is
-#' either `@@x:z:d:t` or `@@x:z:d:t-s`, where `x` and `z` indicates the 
+#' either `@@x:z:d:t` or `@@x:z:d:t:s`, where `x` and `z` indicates the 
 #' coordinates of the chunk in chunk space, `d` indicates the dimension of
 #' the chunk, and `t` and `s` indicate the tag and subtag of the chunk.
 #'
@@ -84,7 +84,7 @@ create_chunk_keys <- function(x, z, dimension, tag, subtag) {
         subtag <- NA_character_
     }
     args <- vec_recycle_common(x,z,dimension,tag,subtag)
-    tag <- str_c(args[[4]], args[[5]], sep="-") %|% as.character(args[[4]])
+    tag <- str_c(args[[4]], args[[5]], sep=":") %|% as.character(args[[4]])
     ret <- str_glue("@{args[[1]]}:{args[[2]]}:{args[[3]]}:{tag}")
     as.character(ret)
 }
@@ -111,23 +111,28 @@ chunk_origins <- function(keys) {
 
 # List of Tags that identify the contents of a chunk key.
 .CHUNK_TAGS <- c(
+    "3DMaps" = 43L, # introduced in 1.18
     "ChunkVersion" = 44L,
     "2DMaps" = 45L,
-    "2DMapsLegacy" = 46L,
+    "Legacy2DMaps" = 46L,
     "SubchunkBlocks" = 47L,
-    "48" = 48L, # removed
+    "LegacyTerrain" = 48L, # removed
     "BlockEntities" = 49L,
     "Entities"= 50L,
     "PendingBlockTicks" = 51L,
-    "52" = 52L, # removed
+    "LegacyBlockExtraData" = 52L, # removed
     "BiomeStates" = 53L,
     "Finalization" = 54L,
-    "55" = 55L, # removed
+    "ConversionData" = 55L, # removed
     "BorderBlocks" = 56L, # Education edition
     "HardcodedSpawnAreas" = 57L,
     "RandomBlockTicks" = 58L,
     "Checksums" = 59L, # introduced in 1.16
-    "ChunkVersionLegacy" = 118L,
+    "GenerationSeed" = 60L, # introduced in 1.18
+    "GeneratedPreCnCBlending" = 61L, # introduced in 1.18
+                       # "Chunk Originally generated before Caves and Cliffs"
+                       # "isGeneratedPreCavesandCliffsBlending"
+    "LegacyChunkVersion" = 118L, # replaced by 44
 
     # future proofing
     "33" = 33L,
@@ -140,10 +145,6 @@ chunk_origins <- function(keys) {
     "40" = 40L,
     "41" = 41L,
     "42" = 42L,
-    "43" = 43L,
-    "60" = 60L,
-    "60" = 60L,
-    "61" = 61L,
     "62" = 62L,
     "63" = 63L,
     "64" = 64L
@@ -170,50 +171,13 @@ chunk_tag_int <- function(tags) {
     unname(.CHUNK_TAGS[tags])
 }
 
-.get_tag_from_chunk_key <- function(keys, as_string = FALSE) {
-    m <- str_match(keys, "^@[^:]+:[^:]+:[^:]+:([^:-]+)(?:-[^:]+)?$")
-    res <- as.integer(m[,2])
-    if(as_string) {
-        res <- chunk_tag_str(res)
-    }
-    res
-}
+.CHUNK_KEY_RE = "^@[^:]+:[^:]+:[^:]+:[^:]+(?::[^:]+)?$"
+.CHUNK_KEY_MATCH = "^@([^:]+):([^:]+):([^:]+):([^:]+)(?::([^:]+))?$"
+.CHUNK_KEY_TAG_MATCH = "^([^:-]+)(?::([^:]+))?$"
+.CHUNK_STEM_MATCH = "^@([^:]+):([^:]+):([^:]+)$"
+.CHUNK_STEM_MATCH2 = "^@([^:]+):([^:]+):([^:]+)(?::([^:]+)(?::([^:]+))?)?$"
 
-.get_subtag_from_chunk_key <- function(keys) {
-    m <- str_match(keys, "^@[^:]+:[^:]+:[^:]+:[^:-]+-([^:]+)$")
-    as.integer(m[,2])
-}
-
-.get_dimension_from_chunk_key <- function(keys) {
-    m <- str_match(keys, "^@[^:]+:[^:]+:([^:]+):[^:-]+(?:-[^:]+)?$")
-    as.integer(m[,2])
-}
-
-.trim_stem_from_chunk_key <- function(keys) {
-    str_replace(keys, "^@[^:]+:[^:]+:[^:]+:", "")
-}
-
-.get_stem_from_chunk_key <- function(keys) {
-    str_extract(keys, "^@[^:]+:[^:]+:[^:]+")
-}
-
-.check_chunk_key_tag <- function(keys, tag, subtag, silent = FALSE) {
-    if(missing(subtag)) {
-        subtag <- if(tag == 47L) "(?:-[^:-]+)?" else ""
-    }
-    b <- .is_chunk_key(keys, tag=tag, subtag=subtag)
-    isgood <- all(b)
-    if(isFALSE(silent) && !isgood) {
-        abort(str_glue("Invalid key: tag is not {tag}."))
-    }
-    isgood
-}
-
-.CHUNK_KEY_RE = "^@[^:]+:[^:]+:[^:]+:[^:-]+(?:-[^:-]+)?$"
-.CHUNK_KEY_MATCH = "^@([^:]+):([^:]+):([^:]+):([^:-]+)(?:-([^:-]+))?$"
-.CHUNK_KEY_TAG_MATCH = "^([^:-]+)(?:-([^:-]+))?$"
-
-.is_chunk_key <- function(keys, tag = "[^:-]+", subtag = "(?:-[^:-]+)?") {
+.is_chunk_key <- function(keys, tag = "[^:]+", subtag = "(?::[^:]+)?") {
     re <- str_c("^@[^:]+:[^:]+:[^:]+:", tag, subtag)
     str_detect(keys, re)
 }
@@ -226,6 +190,49 @@ chunk_tag_int <- function(tags) {
     str_match(keys, .CHUNK_KEY_MATCH)
 }
 
+.split_chunk_stems <- function(keys) {
+    str_match(keys, .CHUNK_STEM_MATCH2)
+}
+
+.get_tag_from_chunk_key <- function(keys, as_string = FALSE) {
+    m <- .split_chunk_keys(keys)
+    res <- as.integer(m[,5])
+    if(as_string) {
+        res <- chunk_tag_str(res)
+    }
+    res
+}
+
+.get_subtag_from_chunk_key <- function(keys) {
+    m <- .split_chunk_keys(keys)
+    as.integer(m[,6])
+}
+
+.get_dimension_from_chunk_key <- function(keys) {
+    m <- .split_chunk_keys(keys)
+    as.integer(m[,4])
+}
+
+.trim_stem_from_chunk_key <- function(keys) {
+    str_replace(keys, "^@[^:]+:[^:]+:[^:]+:", "")
+}
+
+.get_stem_from_chunk_key <- function(keys) {
+    str_extract(keys, "^@[^:]+:[^:]+:[^:]+")
+}
+
+.check_chunk_key_tag <- function(keys, tag, subtag, silent = FALSE) {
+    if(missing(subtag)) {
+        subtag <- if(tag == 47L) "(?::[^:]+)?" else ""
+    }
+    b <- .is_chunk_key(keys, tag=tag, subtag=subtag)
+    isgood <- all(b)
+    if(isFALSE(silent) && !isgood) {
+        abort(str_glue("Invalid key: tag is not {tag}."))
+    }
+    isgood
+}
+
 .process_key_args <- function(x, z, d, tag, subtag,
     stop_if_filtered = FALSE) {
     # is z is missing then x should contain keys as strings
@@ -234,7 +241,7 @@ chunk_tag_int <- function(tags) {
         if(!missing(tag)) {
             vec_assert(tag, size = 1)
             if(missing(subtag)) {
-                subtag <- if(tag == 47L) "(?:-[^:-]+)?" else ""
+                subtag <- if(tag == 47L) "(?::[^:]+)?" else ""
             }
             vec_assert(subtag, size = 1)
 
@@ -248,31 +255,6 @@ chunk_tag_int <- function(tags) {
         return(x)
     }
     create_chunk_keys(x, z, d, tag, subtag)
-}
-
-.process_key_args2 <- function(x, z, d, tag, subtag = NA_integer_,
-    stop_if_filtered = FALSE) {
-    # is z is missing then x should contain keys as strings
-    if(missing(z) && is.character(x)) {
-        # if tag exists, we are going to filter on data type
-        if(!missing(tag)) {
-            vec_assert(tag, size = 1L)
-            ktag <- .get_tag_from_chunk_key(x)
-            b <- !is.na(ktag) & ktag %in% tag
-            if(stop_if_filtered && any(!b)) {
-                stop(paste0("Some keys passed to .process_keys_args2 were filtered based on tag."))
-            }
-            x <- x[b]
-        }
-        return(x)
-    }
-    # create keys and interleave tags.
-    ret <- character(0L)
-    for(atag in tag) {
-        keys <- create_chunk_keys(x, z, d, atag, subtag)
-        ret <- rbind(ret,keys)
-    }
-    as.vector(ret)
 }
 
 .process_key_args_prefix <- function(x, z, d, stop_if_filtered = FALSE) {

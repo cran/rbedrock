@@ -83,7 +83,7 @@ bedrockdb <- function(path, create_if_missing = FALSE, error_if_exists = NULL, p
 #' @param ... arguments passed to or from other methods.
 #'
 #' @rdname bedrockdb
-close.bedrockdb <- function(con, compact = TRUE, ...) {
+close.bedrockdb <- function(con, compact = FALSE, ...) {
     if(isTRUE(compact)) {
         inform("Compacting database...")
         con$compact_range()
@@ -121,6 +121,9 @@ R6_bedrockdb <- R6::R6Class("bedrockdb", public = list(db = NULL, path = NULL, l
     mget = function(keys, readoptions = NULL) {
         bedrock_leveldb_mget(self$db, keys, readoptions)
     },
+    mget_prefix = function(starts_with, readoptions = NULL) {
+        bedrock_leveldb_mget_prefix(self$db, starts_with, readoptions)
+    },    
     put = function(key, value, writeoptions = NULL) {
         bedrock_leveldb_put(self$db, key, value, writeoptions)
         invisible(self)

@@ -32,7 +32,7 @@
 #include "bedrock_leveldb.h"
 #include "key_conv.h"
 #include "nbt.h"
-#include "blocks.h"
+#include "subchunk.h"
 #include "random.h"
 
 // for testing:
@@ -52,6 +52,7 @@ static const R_CallMethodDef call_methods[] = {
 
     {"Cbedrock_leveldb_get", (DL_FUNC)&bedrock_leveldb_get, 3},
     {"Cbedrock_leveldb_mget", (DL_FUNC)&bedrock_leveldb_mget, 3},
+    {"Cbedrock_leveldb_mget_prefix", (DL_FUNC)&bedrock_leveldb_mget_prefix, 3},
     {"Cbedrock_leveldb_put", (DL_FUNC)&bedrock_leveldb_put, 4},
     {"Cbedrock_leveldb_mput", (DL_FUNC)&bedrock_leveldb_mput, 4},
     {"Cbedrock_leveldb_delete", (DL_FUNC)&bedrock_leveldb_delete, 5},
@@ -113,11 +114,13 @@ static const R_CallMethodDef call_methods[] = {
     {"Crawkeys_to_chrkeys", (DL_FUNC)&rawkeys_to_chrkeys, 1},
     {"Cchrkeys_to_rawkeys", (DL_FUNC)&chrkeys_to_rawkeys, 1},
 
-    {"Cread_nbt", (DL_FUNC)&read_nbt, 2},
+    {"Cread_nbt", (DL_FUNC)&read_nbt, 1},
     {"Cwrite_nbt", (DL_FUNC)&write_nbt, 1},
 
-    {"Cread_subchunk", (DL_FUNC)&read_subchunk, 1},
-    {"Cwrite_subchunk", (DL_FUNC)&write_subchunk, 1},
+    {"Cread_subchunk_blocks", (DL_FUNC)&read_subchunk_blocks, 1},
+    {"Cwrite_subchunk_blocks", (DL_FUNC)&write_subchunk_blocks, 4},
+    {"Cread_chunk_biomes", (DL_FUNC)&read_chunk_biomes, 1},
+    {"Cwrite_chunk_biomes", (DL_FUNC)&write_chunk_biomes, 2},
 
     {"Cmcpe_random_seed", (DL_FUNC)&mcpe_random_seed, 1},
     {"Cmcpe_random_state", (DL_FUNC)&mcpe_random_state, 1},

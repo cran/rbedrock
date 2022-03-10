@@ -1,4 +1,7 @@
 [![Discord Chat](https://img.shields.io/discord/710697981677928479.svg)](https://discord.com/invite/sWb4YmX)
+![Latest Version](https://www.r-pkg.org/badges/version/rbedrock)
+![Downloads per Month](https://cranlogs.r-pkg.org/badges/rbedrock)
+![Total Downloads](https://cranlogs.r-pkg.org/badges/grand-total/rbedrock)
 
 ## Overview
 
@@ -10,6 +13,7 @@ If you are not already using R, you will need to install the latest [R](https://
 
 ```r
 # The easiest way to install rbedrock is from CRAN.
+# If this doesn't work, you will need to install the development version (see below).
 install.packages("rbedrock")
 
 # Install tidyverse (not needed, but useful)
@@ -51,7 +55,7 @@ If you do not have CMake installed, you can install it via installr.
 installr::install.CMake()
 ```
 
-Now restart R/Rstudio so the new .Renviron can take effect.
+Now restart R/RStudio so the new .Renviron can take effect.
 
 ``` r
 # install development version of rbedrock
