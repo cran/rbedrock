@@ -3,13 +3,16 @@
 \name{Checksums}
 \alias{Checksums}
 \alias{get_checksums_data}
+\alias{get_checksums_values}
 \alias{get_checksums_value}
 \alias{update_checksums_data}
 \alias{read_checksums_value}
 \alias{write_checksums_value}
 \title{Load and store Checksums data}
 \usage{
-get_checksums_data(db, x = get_keys(db), z, dimension)
+get_checksums_data(db, x, z, dimension)
+
+get_checksums_values(db, x, z, dimension)
 
 get_checksums_value(db, x, z, dimension)
 
@@ -27,7 +30,8 @@ write_checksums_value(object)
 
 \item{rawdata}{a raw vector holding binary Checksums data}
 
-\item{object}{a named character vector in the same format as returned by \code{read_checksums_value()}.}
+\item{object}{a named character vector in the same format as returned by
+\code{read_checksums_value()}.}
 }
 \value{
 \code{get_checksums_data()} returns a named-list of the values returned
@@ -47,6 +51,7 @@ BlockEntities (tag 49), and Entities (tag 50).
 
 \code{get_checksums_data()} loads Checksums data from a \code{bedrockdb}.
 It will silently drop and keys not representing Checksums data.
+\code{get_checksums_values()} is a synonym for \code{get_checksums_data()}.
 
 \code{get_checksums_value()} loads Checksums data from a \code{bedrockdb}.
 It only supports loading a single value.
