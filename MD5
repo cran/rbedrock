@@ -1,7 +1,7 @@
-3dd18de571ebb160e533f27f4df0887f *DESCRIPTION
+c6d0a5e7dc09970237322a24cbb04432 *DESCRIPTION
 f2ce2672695f93619c5085ae3d210ce1 *LICENSE
 47ea1e92a402c8993baf26b72ad3db7b *NAMESPACE
-783c2fcf013bd273863b1ebee8abd202 *NEWS.md
+1c98d70a7c593bbc5e9c28ad831acf40 *NEWS.md
 13da3b7176e1ac25d44a60d21495404e *R/R6.R
 4f7f6525a68c9029e06a538f4875464d *R/actor.R
 8b698231c27022819012e76d1937c367 *R/bedrock_leveldb.R
@@ -29,7 +29,7 @@ adfb82731b26e0ded6d9b945edb03100 *R/worlds.R
 bb1932549d0be47a3d0b9c3ed886639d *R/zzz.R
 8b7946958c92da8b8b085ad3080eb4ec *README.md
 c8e1017743bc26e452af6bb75df9886b *cleanup
-750ca9eed15c4678704887ad28e11aac *configure
+18eaec8deedd2c2e1a078118a3347cad *configure
 d41d8cd98f00b204e9800998ecf8427e *configure.win
 621d1e6d7cbca4ddd6318c6cd22ede34 *inst/extdata/block_states.csv
 f37c3abf141457ba22a2ca8c12d46e24 *inst/extdata/default_level.dat
@@ -89,7 +89,7 @@ d8dae291db3ea2a047306b03e41b7643 *src/dummy.cpp
 e25b528ca3cb6b93ed0e3f89f9c117d5 *src/key_conv.c
 d10fbdd3fa4a6d9b754c7dff8a46fcdf *src/key_conv.h
 431d14a252119822ba060f572df93dac *src/leveldb-mcpe/AUTHORS
-489e5981ce76f9dfec2b4e0b83a81e16 *src/leveldb-mcpe/CMakeLists.txt
+22658007ebcfa95c8e52e2faf71d1b54 *src/leveldb-mcpe/CMakeLists.txt
 8535c66816d617e1708a2203497cfa85 *src/leveldb-mcpe/CONTRIBUTING.md
 92d1b128950b11ba8495b64938fc164d *src/leveldb-mcpe/LICENSE
 b9a2ec29da31c2b043d256994d027030 *src/leveldb-mcpe/Makefile.mingw
