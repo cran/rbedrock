@@ -75,13 +75,13 @@ static void mcpe_random_update_state(void) {
     }
 
     // Temper all numbers in a batch
-    for (size_t i = 0; i < SIZE; ++i) {
-        y = g_state.mt[i];
+    for (size_t j = 0; j < SIZE; ++j) {
+        y = g_state.mt[j];
         y ^= y >> 11;
         y ^= y << 7  & 0x9d2c5680;
         y ^= y << 15 & 0xefc60000;
         y ^= y >> 18;
-        g_state.mt_tempered[i] = y;
+        g_state.mt_tempered[j] = y;
     }
 
     g_state.index = 0;
@@ -116,7 +116,7 @@ SEXP mcpe_random_state(SEXP r_state) {
     memcpy(RAW(ret), &g_state, sizeof(g_state));
     if(!Rf_isNull(r_state)) {
         if((TYPEOF(r_state) != RAWSXP) || XLENGTH(r_state) != sizeof(g_state)) {
-            Rf_error("mcpe_random_state: value 'state' is not a raw vector of length %d.", sizeof(g_state));
+            Rf_error("mcpe_random_state: value 'state' is not a raw vector of length %zd.", sizeof(g_state));
             return R_NilValue;
         }
         memcpy(&g_state, RAW(r_state), sizeof(g_state));

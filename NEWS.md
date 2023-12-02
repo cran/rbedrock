@@ -1,7 +1,16 @@
-## RBedrock 0.3.1
+# RBedrock (development)
+
+# RBedrock 0.3.2
+
+ * Fixed errors in usage of `Rf_error()`.
+ * Use `R_len_t` in more locations.
+
+# RBedrock 0.3.1
+
  * Remove hardcoded C++17 requirement when calling CMake.
 
-## RBedrock 0.3.0
+# RBedrock 0.3.0
+
  * Added support for reading and writing 1.18.30+ actor digests.
  * Chunk data functions have been expanded.
  * [Breaking Change] Biome functions now return CNC biomes data (CnC biome functions have been renamed.) Accessing legacy biome data can be done with legacy biome functions.
@@ -18,7 +27,8 @@
  * Add functions for reading and writing actors data for a chunk.
  * Add utility functions for working with unique ids.
 
-## RBedrock 0.2.0
+# RBedrock 0.2.0
+
  * Support subchunk version 9 introduced for Caves and Cliffs.
  * Support Caves and Cliffs' 3DMaps.
  * Change tag format to `@x:z:d:t:s`. This change was made because subtags can now be negative.
@@ -35,7 +45,7 @@
  * Add `get_subchunk_blocks_from_chunk()` function to efficiently lead subchunks from a single chunk.
  * Add utility functions for calculating spawning area and simulation area.
 
-## RBedrock 0.1.1
+# RBedrock 0.1.1
 
  * Fixed errors identified by UBSAN and Valgrind
  * Improved the detection of cmake binary.
@@ -43,7 +53,7 @@
  * RBedrock can now be compiled by CRAN's MacOS builder.
  * Updated README.md
 
-## RBedrock 0.1.0
+# RBedrock 0.1.0
 
  * Initial Release
 
