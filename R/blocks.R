@@ -15,22 +15,29 @@
 #' @param extra_block A logical scalar. Append the extra block layer to the
 #' output (separated by ";"). This is mostly useful if you have waterlogged
 #' blocks. If the extra block is air, it will not be appended.
+#' @param min_subchunk,max_subchunk The minimum and maximum subchunks of the
+#' returned array. Set to `TRUE` to use dimension defaults. Set to `FALSE` to
+#' use the values from chunk data.
 #'
 #' @return `get_chunk_blocks_data()` returns a list of the of the values
 #' returned by `read_chunk_blocks_value()`.
 #' @export
 get_chunk_blocks_data <- function(db, x, z, dimension,
                                   names_only = FALSE,
-                                  extra_block = FALSE) {
+                                  extra_block = !names_only,
+                                  min_subchunk = TRUE,
+                                  max_subchunk = !names_only) {
     starts_with <- .process_key_args_prefix(x, z, dimension)
     starts_with <- vec_unique(starts_with)
-    starts_with <- str_c(starts_with, ":47")
 
-    dat <- purrr::map(starts_with,
-                      ~.get_chunk_blocks_value_impl(db,
-                                                    starts_with = .,
-                                                    names_only = names_only,
-                                                    extra_block = extra_block))
+    dat <- purrr::map(starts_with, function(x) {
+        .get_chunk_blocks_value_impl(db,
+                                     starts_with = x,
+                                     names_only = names_only,
+                                     extra_block = extra_block,
+                                     min_subchunk = min_subchunk,
+                                     max_subchunk = max_subchunk)
+    })
 
     set_names(dat, starts_with)
 }
@@ -54,15 +61,17 @@ get_chunk_blocks_values <- get_chunk_blocks_data
 #' @export
 get_chunk_blocks_value <- function(db, x, z, dimension,
                                    names_only = FALSE,
-                                   extra_block = FALSE) {
+                                   extra_block = !names_only,
+                                   min_subchunk = TRUE,
+                                   max_subchunk = !names_only) {
     starts_with <- .process_key_args_prefix(x, z, dimension)
     starts_with <- vec_unique(starts_with)
-    vec_assert(starts_with, character(), 1L)
-    starts_with <- str_c(starts_with, ":47")
 
     .get_chunk_blocks_value_impl(db, starts_with,
         names_only = names_only,
-        extra_block = extra_block
+        extra_block = extra_block,
+        min_subchunk = min_subchunk,
+        max_subchunk = max_subchunk
     )
 }
 
@@ -85,11 +94,12 @@ put_chunk_blocks_data <- function(db, data, version = 9L) {
 #' @export
 put_chunk_blocks_values <- function(db, x, z, dimension, values,
                                     version = 9L) {
-    keys <- .process_key_args(x, z, dimension, tag = 47L,
-                              stop_if_filtered = TRUE)
+    keys <- .process_key_args_prefix(x, z, dimension)
     values <- vec_recycle(values, length(keys), x_arg = "values")
-    purrr::walk2(keys, values,
-                 ~.put_chunk_blocks_value_impl(db, .x, .y, version = version))
+    f <- function(x, y) {
+        .put_chunk_blocks_value_impl(db, x, y, version = version)
+    }
+    purrr::walk2(keys, values, f)
 }
 
 #' @param value A 16xNx16 character array
@@ -97,34 +107,58 @@ put_chunk_blocks_values <- function(db, x, z, dimension, values,
 #' @rdname get_chunk_blocks_data
 #' @export
 put_chunk_blocks_value <- function(db, x, z, dimension, value, version = 9L) {
-    key <- .process_key_args(x, z, dimension, tag = 47L)
+    key <- .process_key_args_prefix(x, z, dimension)
     vec_assert(key, character(), 1L)
     .put_chunk_blocks_value_impl(db, key, value, version = version)
 }
 
-.get_chunk_blocks_value_impl <- function(db, starts_with, ...) {
-    dat <- .get_subchunk_blocks_data_impl(db, starts_with = starts_with, ...)
-    if (length(dat) == 0L) {
+.get_chunk_blocks_value_impl <- function(db, starts_with, names_only,
+                                         extra_block, min_subchunk,
+                                         max_subchunk) {
+
+    p <- .split_chunk_stems(starts_with)
+    dimension <- p[3]
+
+    starts_with <- paste0(starts_with, ":47")
+    dat <- .get_subchunk_blocks_data_impl(db, starts_with = starts_with,
+                                          names_only = names_only,
+                                          extra_block = extra_block)
+
+    # calculate lowest and highest subchunks
+    pos <- purrr::map_int(dat, attr, "offset")
+    if (is.numeric(min_subchunk)) {
+        bottom <- as.integer(min_subchunk)
+    } else if (isTRUE(min_subchunk)) {
+        bottom <- if (dimension == 0) -4 else 0
+    } else if (length(pos) > 0L) {
+        bottom <- min(pos)
+    } else {
+        bottom <- NA
+    }
+    if (is.numeric(max_subchunk)) {
+        top <- as.integer(max_subchunk)
+    } else if (isTRUE(max_subchunk)) {
+        top <- if (dimension == 0) 19 else if (dimension == 1) 7 else 15
+    } else  if (length(pos) > 0L) {
+        top <- max(pos)
+    } else {
+        top <- NA
+    }
+    if (is.na(top) || is.na(bottom)) {
         return(NULL)
     }
 
-    pos <- purrr::map_int(dat, attr, "offset")
-    # calculate the lowest subchunk and adjust as necessary
-    # ideally calculation should be based on dimension
-    # and chunk version
-    bottom <- min(pos)
-    if (bottom < 0) {
-        bottom <- min(bottom, -4)
-    } else if (bottom != 0) {
-        bottom <- 0
-    }
-    max_y <- 16 * (max(pos) - bottom) + 16
-    mat <- array("minecraft:air", c(16, max_y, 16))
+    # Allocate array
+    height <- 16 * (top - bottom + 1)
+    mat <- array("minecraft:air", c(16, height, 16))
+
+    # Copy Data
     for (i in seq_along(pos)) {
-        mat[, ((pos[i] - bottom) * 16) + 1:16, ] <- dat[[i]]
+        if (pos[i] >= bottom && pos[i] <= top) {
+            mat[, ((pos[i] - bottom) * 16) + 1:16, ] <- dat[[i]]
+        }
     }
-    o <- as.integer(.split_chunk_stems(starts_with)[1:2])
-    attr(mat, "origin") <- c(o[1], bottom, o[2]) * 16L
+    attr(mat, "origin") <- c(p[1], bottom, p[2]) * 16L
     mat
 }
 
@@ -141,7 +175,7 @@ chunk_origin <- function(x) {
 #' @rdname chunk_origin
 `chunk_origin<-` <- function(x, value) {
     attr(x, "origin") <- value
-    return(x)
+    x
 }
 
 .valid_blocks_value <- function(value) {
@@ -152,12 +186,24 @@ chunk_origin <- function(x) {
     if (length(d) != 3L || d[1] != 16L || d[3] != 16L) {
         return(FALSE)
     }
-    return(TRUE)
+    TRUE
+}
+
+.is_blocks_prefix <- function(x) {
+    grepl("^chunk:-?[0-9]+:-?[0-9]+:[0-9]+:47$", x)
 }
 
 .put_chunk_blocks_value_impl <- function(db, prefix, value, version = 9L) {
     if (!.valid_blocks_value(value)) {
         abort("`value` must be a 16 x 16*N x 16 character array.")
+    }
+    if (!.is_blocks_prefix(prefix)) {
+        prefix_ <- paste0(prefix, ":47")
+        if (!.is_blocks_prefix(prefix_)) {
+            msg <- sprintf("`%s` is not a valid blocks prefix", prefix)
+            abort(msg)
+        }
+        prefix <- prefix_
     }
 
     origin <- chunk_origin(value)
@@ -273,7 +319,7 @@ NULL
 #' @export
 get_subchunk_blocks_data <- function(db, x, z, dimension, subchunk,
                                      names_only = FALSE,
-                                     extra_block = FALSE) {
+                                     extra_block = !names_only) {
     keys <- .process_key_args(x, z, dimension, tag = 47L, subtag = subchunk)
 
     .get_subchunk_blocks_data_impl(db, keys,
@@ -288,7 +334,7 @@ get_subchunk_blocks_values <- get_subchunk_blocks_data
 .get_subchunk_blocks_data_impl <- function(db, keys, starts_with,
                                            readoptions = NULL,
                                            names_only = FALSE,
-                                           extra_block = FALSE) {
+                                           extra_block = !names_only) {
     dat <- get_values(db, keys, starts_with, readoptions)
     offsets <- .get_subtag_from_chunk_key(names(dat))
     ret <- purrr::map2(dat, offsets, read_subchunk_blocks_value,
@@ -308,7 +354,7 @@ get_subchunk_blocks_values <- get_subchunk_blocks_data
 #' @export
 get_subchunk_blocks_value <- function(db, x, z, dimension, subchunk,
                                       names_only = FALSE,
-                                      extra_block = FALSE) {
+                                      extra_block = !names_only) {
     key <- .process_key_args(x, z, dimension, tag = 47L, subtag = subchunk)
     vec_assert(key, character(), 1L)
 
@@ -331,8 +377,7 @@ get_subchunk_blocks_value <- function(db, x, z, dimension, subchunk,
 #' @export
 get_subchunk_blocks_from_chunk <- function(db, x, z, dimension,
                                            names_only = FALSE,
-                                           extra_block = FALSE) {
-
+                                           extra_block = !names_only) {
     starts_with <- .process_key_args_prefix(x, z, dimension)
     vec_assert(starts_with, character(), 1L)
     starts_with <- str_c(starts_with, ":47")
@@ -399,7 +444,7 @@ put_subchunk_blocks_value <- function(db, x, z, dimension, subchunk, value,
 #' @export
 read_subchunk_blocks_value <- function(rawdata, missing_offset = NA,
                                        names_only = FALSE,
-                                       extra_block = FALSE) {
+                                       extra_block = !names_only) {
     if (is.null(rawdata)) {
         return(NULL)
     }
@@ -558,10 +603,10 @@ read_subchunk_layers_value <- function(rawdata) {
     }
     vec_assert(rawdata, raw())
     x <- .Call(Cread_subchunk_blocks, rawdata)
-    x <- purrr::modify(x, function(y) {
-        y$palette <- from_rnbt(y$palette)
-        y
-    })
+    for (i in seq_along(x)) {
+        x[[i]]$values <- aperm(x[[i]]$values, c(1, 3, 2))
+        x[[i]]$palette <- from_rnbt(x[[i]]$palette)
+    }
     x
 }
 
@@ -593,10 +638,12 @@ write_subchunk_layers_value <- function(object, version = 9L,
         }
     }
     values <- purrr::map(object, function(x) {
-        if (length(x[["values"]]) != 16 * 16 * 16) {
+        x <- as.integer(x[["values"]])
+        if (length(x) != 16 * 16 * 16) {
             abort("an element of `object` is malformed")
         }
-        as.integer(x[["values"]])
+        dim(x) <- c(16, 16, 16)
+        aperm(x, c(1, 3, 2))
     })
     palette <- purrr::map(object, function(x) {
         if (!has_name(x, "palette") ||
@@ -638,42 +685,48 @@ write_subchunk_layers_value <- function(object, version = 9L,
 }
 
 # nolint start: object_name_linter
-.BIT_STATES <- c(
-    "age_bit", "allow_underwater_bit", "attached_bit",
-    "brewing_stand_slot_a_bit", "brewing_stand_slot_b_bit",
-    "brewing_stand_slot_c_bit", "button_pressed_bit", "color_bit",
-    "conditional_bit", "coral_hang_type_bit", "covered_bit", "dead_bit",
-    "deprecated", "disarmed_bit", "door_hinge_bit", "drag_down",
-    "end_portal_eye_bit", "explode_bit", "extinguished", "hanging",
-    "head_piece_bit", "in_wall_bit", "infiniburn_bit", "item_frame_map_bit",
-    "no_drop_bit", "occupied_bit", "open_bit", "output_lit_bit",
+.BIT_STATES <- c("active", "age_bit", "allow_underwater_bit", "attached_bit",
+    "big_dripleaf_head", "bloom", "brewing_stand_slot_a_bit",
+    "brewing_stand_slot_b_bit", "brewing_stand_slot_c_bit",
+    "button_pressed_bit", "can_summon", "color_bit", "conditional_bit",
+    "coral_hang_type_bit", "covered_bit", "crafting", "dead_bit",
+    "disarmed_bit", "door_hinge_bit", "drag_down", "end_portal_eye_bit",
+    "explode_bit", "extinguished", "hanging", "head_piece_bit", "in_wall_bit",
+    "infiniburn_bit", "item_frame_map_bit", "item_frame_photo_bit", "lit",
+    "no_drop_bit", "occupied_bit", "ominous", "open_bit", "output_lit_bit",
     "output_subtract_bit", "persistent_bit", "powered_bit", "rail_data_bit",
     "stability_check", "stripped_bit", "suspended_bit", "toggle_bit",
     "top_slot_bit", "triggered_bit", "update_bit", "upper_block_bit",
-    "upside_down_bit"
-)
+    "upside_down_bit", "wall_post_bit")
 
-.INTEGER_STATES <- c(
-    "age", "bite_counter", "cluster_count", "composter_fill_level",
-    "coral_direction", "direction", "facing_direction", "fill_level",
-    "ground_sign_direction", "growth", "height", "honey_level",
-    "huge_mushroom_bits", "liquid_depth", "moisturized_amount",
-    "rail_direction", "redstone_signal", "repeater_delay", "stability",
-    "vine_direction_bits", "weirdo_direction"
-)
+.INTEGER_STATES <- c("age", "bite_counter", "block_light_level", "books_stored",
+    "brushed_progress", "candles", "cluster_count", "composter_fill_level",
+    "coral_direction", "coral_fan_direction", "deprecated", "direction",
+    "facing_direction", "fill_level", "ground_sign_direction",
+    "growing_plant_age", "growth", "height", "honey_level",
+    "huge_mushroom_bits", "kelp_age", "liquid_depth", "moisturized_amount",
+    "multi_face_direction_bits", "propagule_stage", "rail_direction",
+    "redstone_signal", "repeater_delay", "respawn_anchor_charge", "rotation",
+    "sculk_sensor_phase", "stability", "trial_spawner_state",
+    "twisting_vines_age", "vine_direction_bits", "weeping_vines_age",
+    "weirdo_direction")
 
-.STRING_STATES <- c(
-    "attachment", "bamboo_leaf_size", "bamboo_stalk_thickness",
-    "cauldron_liquid", "chemistry_table_type", "chisel_type", "color",
-    "coral_color", "cracked_state", "damage", "dirt_type", "double_plant_type",
-    "flower_type", "monster_egg_stone_type", "new_leaf_type", "new_log_type",
-    "old_leaf_type", "old_log_type", "pillar_axis", "portal_axis",
-    "prismarine_block_type", "sand_stone_type", "sand_type", "sapling_type",
-    "sea_grass_type", "sponge_type", "stone_brick_type", "stone_slab_type_2",
-    "stone_slab_type_3", "stone_slab_type_4", "stone_slab_type", "stone_type",
-    "structure_block_type", "structure_void_type", "tall_grass_type",
-    "torch_facing_direction", "turtle_egg_count", "wall_block_type", "wood_type"
-)
+.STRING_STATES <- c("attachment", "bamboo_leaf_size", "bamboo_stalk_thickness",
+    "big_dripleaf_tilt", "cauldron_liquid", "chemistry_table_type",
+    "chisel_type", "color", "coral_color", "cracked_state", "damage",
+    "dirt_type", "double_plant_type", "dripstone_thickness", "flower_type",
+    "lever_direction", "minecraft:block_face", "minecraft:cardinal_direction",
+    "minecraft:facing_direction", "minecraft:vertical_half",
+    "monster_egg_stone_type", "new_leaf_type", "new_log_type",
+    "old_leaf_type", "old_log_type", "orientation", "pillar_axis",
+    "portal_axis", "prismarine_block_type", "sand_stone_type", "sand_type",
+    "sapling_type", "sea_grass_type", "sponge_type", "stone_brick_type",
+    "stone_slab_type", "stone_slab_type_2", "stone_slab_type_3",
+    "stone_slab_type_4", "stone_type", "structure_block_type",
+    "structure_void_type", "tall_grass_type", "torch_facing_direction",
+    "turtle_egg_count", "vault_state", "wall_block_type",
+    "wall_connection_type_east", "wall_connection_type_north",
+    "wall_connection_type_south", "wall_connection_type_west", "wood_type")
 # nolint end
 
 .as_bit <- function(x, strict = FALSE) {
@@ -787,4 +840,64 @@ subchunk_coords <- function(ind, origins = subchunk_origins(names(ind))) {
     } else {
         f(ind, as.vector(origins))
     }
+}
+
+.chunk_blocks_apply_offsets <- function(args, dims, origin) {
+    if (length(args) == length(dims)) {
+        for (i in seq_along(args)) {
+            if (is.numeric(args[[i]])) {
+                ii <- args[[i]] - origin[i] + 1L
+                if (any(ii < 1L, na.rm = TRUE)) {
+                    rlang::abort("subscript out of bounds")
+                }
+                args[[i]] <- ii
+            }
+        }
+    } else if (length(args) == 1L) {
+        if (is.matrix(args[[1]]) && is.numeric(args[[1]])) {
+            # adjust indices
+            args[[1]] <- sweep(args[[1]], 2, origin) + 1L
+        }
+    } else if (length(args) != 0L) {
+        rlang::abort("incorrect number of dimensions")
+    }
+
+    args
+}
+
+#' Extract or replace chunk blocks from an array
+#'
+#' Convenience wrappers around `[` to extract or replace blocks from an array
+#' based on block coordinates.
+#'
+#' @param x Object from which to extract element(s) or in which to replace
+#' element(s).
+#' @param drop if `TRUE` the result is coerced to the lowest possible dimension.
+#' @param origin the origin of the chunk array, used for mapping coordinates to
+#' indices
+#' @param ... block coordinates specifying elements to extract or replace. Can
+#' be numeric, logical, or missing. If numeric, the coordinates will be mapped
+#' to indices unless there is a single, non-matrix argument.
+#' @param value An array-like R object of similar class as x
+#'
+#' @export
+chunk_blocks <- function(x, ..., drop = TRUE, origin = chunk_origin(x)) {
+    args <- rlang::dots_list(..., .named = NULL,
+                             .preserve_empty = TRUE,
+                             .ignore_empty = "none")
+    args <- .chunk_blocks_apply_offsets(args, dim(x), origin)
+
+    # if this fails the error message is gnarly, see rlang::exec docs
+    rlang::exec(`[`, x, !!!args, drop = drop)
+}
+
+#' @rdname chunk_blocks
+#' @export
+`chunk_blocks<-` <- function(x, ..., origin = chunk_origin(x), value) {
+    args <- rlang::dots_list(..., .named = NULL,
+                             .preserve_empty = TRUE,
+                             .ignore_empty = "none")
+    args <- .chunk_blocks_apply_offsets(args, dim(x), origin)
+
+    rlang::exec(`[<-`, x, !!!args, value = value)
 }

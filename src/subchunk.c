@@ -25,17 +25,19 @@ SEXP read_subchunk_palette_ids(const unsigned char **buffer, const unsigned char
     int flags = p[0];
     ++p;
 
-    // Check for special flag that signals an empty subchunk
-    if(flags == 255) {
+    *is_persistent = ((flags & 1) == 0);
+    int bits_per_block = flags >> 1;
+
+    // Check for special flag that signals a palette copy
+    if(bits_per_block == 127) {
         *palette_size = 0;
         *buffer = p;
         return R_NilValue;
     }
-    *is_persistent = ((flags & 1) == 0);
 
     SEXP r_blocks = PROTECT(Rf_alloc3DArray(INTSXP, 16,16,16));
+
     // calculate storage structure.
-    int bits_per_block = flags >> 1;
     if(bits_per_block > 0) {
         int blocks_per_word = 32 / bits_per_block; // floor using integer math
         int word_count = (4095 / blocks_per_word)+1; // ceiling using integer math
@@ -52,11 +54,12 @@ SEXP read_subchunk_palette_ids(const unsigned char **buffer, const unsigned char
             memcpy(&temp, p, 4);
             p += 4;
             for(int k = 0; k < blocks_per_word && u < 4096; ++k) {
-                // calculate position as if we did aperm(v, c(3,1,2))
+                // Current order is y,z,x
+                // Reshape to order x,z,y
                 unsigned int x = (u >> 8) & 0xf;
-                unsigned int y = u & 0xf;
                 unsigned int z = (u >> 4) & 0xf;
-                unsigned int pos = x + 16*y + 256*z;
+                unsigned int y = u & 0xf;
+                unsigned int pos = x + 16*z + 256*y;
                 // store block id
                 v[pos] = (temp & mask) + 1;
                 temp = temp >> bits_per_block;
@@ -94,18 +97,18 @@ static int calc_bits_per_block(int sz) {
 }
 
 SEXP write_subchunk_palette_ids(SEXP r_values, bool is_persistent, R_xlen_t palette_size) {
-    // Check Data
-    if(!Rf_isInteger(r_values)) {
-        return_subchunk_error();
-    }
     SEXP r_ret;
     // Handle special case of palette_size == 0
-    if(palette_size == 0) {
+    if(palette_size == 0 || Rf_isNull(r_values)) {
         r_ret = PROTECT(Rf_allocVector(RAWSXP, 1));
         unsigned char *buffer = RAW(r_ret);
         *buffer = 255;
         UNPROTECT(1);
         return r_ret;
+    }
+    // Check Data
+    if(!Rf_isInteger(r_values)) {
+        return_subchunk_error();
     }
     // Check Length
     if(XLENGTH(r_values) != 4096) {
@@ -140,11 +143,11 @@ SEXP write_subchunk_palette_ids(SEXP r_values, bool is_persistent, R_xlen_t pale
         // read current word and parse
         unsigned int temp = 0;
         for(int k = 0; k < blocks_per_word && u < 4096; ++k) {
-            // calculate position as if we did aperm(v, c(3,1,2))
+            // translate x,z,y order to y,z,x order
             unsigned int x = (u >> 8) & 0xf;
             unsigned int y = u & 0xf;
             unsigned int z = (u >> 4) & 0xf;
-            unsigned int pos = x + 16*y + 256*z;
+            unsigned int pos = x + 16*z + 256*y;
             // store block id
             unsigned int id = v[pos]-1;
             temp |= (id & mask) << k*bits_per_block;
@@ -178,7 +181,7 @@ SEXP read_subchunk_blocks(SEXP r_value) {
     int version = p[0];
     if(version < 8 || version > 9) {
         Rf_error("Subchunk data version '%d' is not supported.", version);
-        return R_NilValue;        
+        return R_NilValue;
     }
     int num_layers = p[1];
     p += 2;
@@ -195,6 +198,9 @@ SEXP read_subchunk_blocks(SEXP r_value) {
         bool is_persistent;
         int palette_size;
         SEXP r_blocks = PROTECT(read_subchunk_palette_ids(&p, end, &is_persistent, &palette_size));
+        if(Rf_isNull(r_blocks)) {
+            error_return("Subchunk has an empty block palette.")
+        }
         if(is_persistent == false) {
             // Chunk storage is runtime
             error_return("Subchunk does not have Persistent IDs.");
@@ -289,36 +295,37 @@ SEXP read_chunk_biomes(SEXP r_value) {
     const unsigned char *buffer = RAW(r_value);
     const unsigned char *p = buffer;
     const unsigned char *end = buffer+len;
+    
     while(p < end) {
         bool is_persistent;
         int palette_size;
-        // construct a list to hold this subchunk
+        SEXP r_values = PROTECT(read_subchunk_palette_ids(&p, end, &is_persistent, &palette_size));
+        if(Rf_isNull(r_values)) {
+            // add to stretchy list a NULL
+            grow_stretchy_list(r_ret, R_NilValue);
+            UNPROTECT(1); /* r_values */
+            continue;
+        }
+        // construct a list to hold this biome palette
         const char *names[] = {"values", "palette", ""};
         SEXP r_val = PROTECT(Rf_mkNamed(VECSXP, names));
-        SEXP r_values = PROTECT(read_subchunk_palette_ids(&p, end, &is_persistent, &palette_size));
         SET_VECTOR_ELT(r_val, 0, r_values);
-        UNPROTECT(1);
-        if(palette_size > 0) {
-            if(is_persistent == true) {
-                // Biomes are stored as runtime IDs. Toss error if they aren't.
-                error_return("Subchunk has Persistent IDs.");
-            }
-            if(end - p < palette_size*sizeof(int)) {
-                return_subchunk_error();
-            }
-            SEXP r_palette = PROTECT(Rf_allocVector(INTSXP, palette_size));
-            memcpy(INTEGER(r_palette), p, palette_size*sizeof(int));
-            p += palette_size*sizeof(int);
-            SET_VECTOR_ELT(r_val, 1, r_palette);
-            UNPROTECT(1);
-        } else {
-            SET_VECTOR_ELT(r_val, 1, R_NilValue);
+        if(is_persistent == true) {
+            // Biomes are stored as runtime IDs. Toss error otherwise.
+            error_return("Biome palette does not have runtime ids.");
         }
+        if(end - p < palette_size*sizeof(int)) {
+            return_subchunk_error();
+        }
+        SEXP r_palette = PROTECT(Rf_allocVector(INTSXP, palette_size));
+        memcpy(INTEGER(r_palette), p, palette_size*sizeof(int));
+        p += palette_size*sizeof(int);
+        SET_VECTOR_ELT(r_val, 1, r_palette);
         // add to stretchy list
         grow_stretchy_list(r_ret, r_val);
-        UNPROTECT(1);
+        UNPROTECT(3); /* r_val, r_values, r_palette */
     }
-    UNPROTECT(1);
+    UNPROTECT(1); /* r_ret */
     return Rf_PairToVectorList(CDR(r_ret));
 }
 
@@ -332,7 +339,8 @@ SEXP write_chunk_biomes(SEXP r_values, SEXP r_palettes) {
         SEXP r_val = VECTOR_ELT(r_values, i);
         SEXP r_pal = VECTOR_ELT(r_palettes, i);
         // Write the palette ids using runtime storage
-        SET_VECTOR_ELT(r_retv, 2*i, write_subchunk_palette_ids(r_val, false, XLENGTH(r_pal)));
+        SET_VECTOR_ELT(r_retv, 2*i,
+            write_subchunk_palette_ids(r_val, false, XLENGTH(r_pal)));
         // write palette
         if(!Rf_isInteger(r_pal)) {
             return_subchunk_error();
